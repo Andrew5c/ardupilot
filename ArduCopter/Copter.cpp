@@ -440,7 +440,7 @@ void Copter::one_hz_loop()
     if (should_log(MASK_LOG_ANY)) {
         Log_Write_Data(DATA_AP_STATE, ap.value);
     }
-
+    // update the arming state
     arming.update();
 
     if (!motors->armed()) {
@@ -469,6 +469,9 @@ void Copter::one_hz_loop()
 #endif
 
     AP_Notify::flags.flying = !ap.land_complete;
+
+    // add a msg send to gcs.
+    gcs().send_text(MAV_SEVERITY_CRITICAL, "Current attitude: %.1f m", copter.flightmode->get_alt_above_ground_cm()/100.0f);
 }
 
 // called at 50hz
