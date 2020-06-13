@@ -237,6 +237,8 @@ public:
     friend class ModeZigZag;
     friend class ModeAutorotate;
 
+    friend class ModeDrawStar;
+
     Copter(void);
 
     // HAL::Callbacks implementation.
@@ -996,6 +998,8 @@ private:
 #if MODE_AUTOROTATE_ENABLED == ENABLED
     ModeAutorotate mode_autorotate;
 #endif
+
+    ModeDrawStar mode_drawstar;
 
     // mode.cpp
     Mode *mode_from_mode_num(const Mode::Number mode);
