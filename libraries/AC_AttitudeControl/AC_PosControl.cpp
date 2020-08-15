@@ -2,6 +2,8 @@
 #include "AC_PosControl.h"
 #include <AP_Math/AP_Math.h>
 #include <AP_Logger/AP_Logger.h>
+#include "Copter.h"
+
 
 extern const AP_HAL::HAL& hal;
 
@@ -1034,6 +1036,7 @@ void AC_PosControl::desired_vel_to_pos(float nav_dt)
 ///     desired velocity (_vel_desired) is combined into final target velocity
 ///     converts desired velocities in lat/lon directions to accelerations in lat/lon frame
 ///     converts desired accelerations provided in lat/lon frame to roll/pitch angles
+/*
 void AC_PosControl::run_xy_controller(float dt)
 {
     float ekfGndSpdLimit, ekfNavVelGainScaler;
@@ -1101,6 +1104,7 @@ void AC_PosControl::run_xy_controller(float dt)
     vel_xy_d = _pid_vel_xy.get_d();
 
     // acceleration to correct for velocity error and scale PID output to compensate for optical flow measurement induced EKF noise
+    // we can replace here...
     accel_target.x = (vel_xy_p.x + vel_xy_i.x + vel_xy_d.x) * ekfNavVelGainScaler;
     accel_target.y = (vel_xy_p.y + vel_xy_i.y + vel_xy_d.y) * ekfNavVelGainScaler;
 
@@ -1132,6 +1136,80 @@ void AC_PosControl::run_xy_controller(float dt)
     // update angle targets that will be passed to stabilize controller
     accel_to_lean_angles(_accel_target.x, _accel_target.y, _roll_target, _pitch_target);
 }
+*/
+
+
+// ******************************************
+// rewrite the xy-controller, just to simplify
+// *******************************************
+void AC_PosControl::run_xy_controller(float dt)
+{
+    float ekfGndSpdLimit, ekfNavVelGainScaler;
+    AP::ahrs_navekf().getEkfControlLimits(ekfGndSpdLimit, ekfNavVelGainScaler);
+
+    Vector3f curr_pos = _inav.get_position();
+    float kP = ekfNavVelGainScaler * _p_pos_xy.kP(); // scale gains to compensate for noisy optical flow measurement in the EKF
+
+    _pos_error.x = _pos_target.x - curr_pos.x;
+    _pos_error.y = _pos_target.y - curr_pos.y;
+    _vel_target = sqrt_controller(_pos_error, kP, _accel_cms);
+
+    // the following section converts desired velocities in lat/lon directions to accelerations in lat/lon frame
+
+    Vector2f accel_target, vel_xy_p, vel_xy_i, vel_xy_d;
+
+    // calculate velocity error
+    _vel_error.x = _vel_target.x - _inav.get_velocity().x;
+    _vel_error.y = _vel_target.y - _inav.get_velocity().y;
+    // TODO: constrain velocity error and velocity target
+
+    // call pi controller
+    _pid_vel_xy.set_input(_vel_error);
+
+    // get p, in fact, this function to calculate the term of P
+    vel_xy_p = _pid_vel_xy.get_p();
+
+    // update i term if we have not hit the accel or throttle limits OR the i term will reduce
+    // TODO: move limit handling into the PI and PID controller
+    if (!_limit.accel_xy && !_motors.limit.throttle_upper) {
+        vel_xy_i = _pid_vel_xy.get_i();
+    } else {
+        vel_xy_i = _pid_vel_xy.get_i_shrink();
+    }
+
+    // get d
+    vel_xy_d = _pid_vel_xy.get_d();
+
+    // acceleration to correct for velocity error and scale PID output to compensate for optical flow measurement induced EKF noise
+    // we can replace here...
+    accel_target.x = (vel_xy_p.x  + vel_xy_i.x) * ekfNavVelGainScaler;
+    accel_target.y = (vel_xy_p.y  + vel_xy_i.y) * ekfNavVelGainScaler;
+
+
+    // Add feed forward into the target acceleration output
+    accel_target.x += _accel_desired.x;
+    accel_target.y += _accel_desired.y;
+
+    // update angle targets that will be passed to stabilize controller
+    accel_to_lean_angles(accel_target.x, accel_target.y, _roll_target, _pitch_target);
+}
+
+
+// ******************************************
+// rewrite the xy-controller
+// *******************************************
+void AC_PosControl::sampled_error_xy_controller(float dt)
+{
+    Vector2f relative_pos;
+    // get the target position relative to vehicle
+    if (!copter.precland.get_target_position_relative_cm(relative_pos)) {
+        relative_pos.x = 0;
+        relative_pos.y = 0;
+    }
+}
+
+
+
 
 // get_lean_angles_to_accel - convert roll, pitch lean angles to lat/lon frame accelerations in cm/s/s
 void AC_PosControl::accel_to_lean_angles(float accel_x_cmss, float accel_y_cmss, float& roll_target, float& pitch_target) const
